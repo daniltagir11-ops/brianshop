@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 import os
@@ -10,46 +10,193 @@ CORS(app)
 TOKEN = "8486993696:AAFLyvI3lbMYltXTKXVSbMj552dcXaXwgRI"
 CHAT_ID = -1003816309605
 
-# ===== Функция для сохранения заказа в Supabase =====
-def save_order_to_supabase(order_data):
-    SUPABASE_URL = "https://perxwqxtzgbvswimmkgt.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlcnh3cXh0emdidnN3aW1ta2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNTY1NTYsImV4cCI6MjA5MDYzMjU1Nn0.dmR6UpUOHsYgPgr8k9wWWiqdNhfGq38Qjk5so1l37YY"
-    
-    headers = {
+SUPABASE_URL = "https://perxwqxtzgbvswimmkgt.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlcnh3cXh0emdidnN3aW1ta2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNTY1NTYsImV4cCI6MjA5MDYzMjU1Nn0.dmR6UpUOHsYgPgr8k9wWWiqdNhfGq38Qjk5so1l37YY"
+
+def supabase_headers():
+    return {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json"
     }
+
+# ===== ЭНДПОИНТ ДЛЯ РЕГИСТРАЦИИ =====
+@app.route("/user", methods=["POST"])
+def user():
+    data = request.json
+    tg_id = data.get("tgId")
+    username = data.get("username")
+    first_name = data.get("firstName")
     
+    if not tg_id:
+        return jsonify({"success": False, "error": "No tgId"}), 400
+    
+    # Проверяем, существует ли пользователь
+    headers = supabase_headers()
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
+        headers=headers
+    )
+    
+    if response.status_code == 200 and response.json():
+        user_data = response.json()[0]
+        return jsonify({"success": True, "user": user_data})
+    
+    # Создаём нового пользователя
+    referral_code = str(tg_id)[:8] + "X"
     payload = {
-        "order_number": order_data.get("orderId"),
-        "user_tg_id": int(order_data.get("tgId")),
-        "items": order_data.get("items"),
-        "total": order_data.get("total"),
-        "status": "pending"
+        "tg_id": tg_id,
+        "username": username or "",
+        "first_name": first_name or "",
+        "referral_code": referral_code,
+        "balance": 0,
+        "is_admin": False
     }
     
-    try:
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/orders",
-            headers=headers,
-            json=payload
-        )
-        return response.status_code in [200, 201]
-    except Exception as e:
-        print(f"Supabase error: {e}")
-        return False
+    create_response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/users",
+        headers=headers,
+        json=payload
+    )
+    
+    if create_response.status_code in [200, 201]:
+        user_data = create_response.json()[0] if isinstance(create_response.json(), list) else create_response.json()
+        return jsonify({"success": True, "user": user_data})
+    
+    return jsonify({"success": False, "error": "Failed to create user"}), 500
 
-# ===== Маршрут для приема заказов =====
+# ===== ЭНДПОИНТ ДЛЯ ЗАКАЗОВ =====
+@app.route("/orders", methods=["POST"])
+def get_orders():
+    data = request.json
+    tg_id = data.get("tgId")
+    
+    if not tg_id:
+        return jsonify({"success": False, "orders": []}), 400
+    
+    headers = supabase_headers()
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&order=created_at.desc",
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        return jsonify({"success": True, "orders": response.json()})
+    
+    return jsonify({"success": False, "orders": []}), 500
+
+# ===== ЭНДПОИНТ ДЛЯ СТАТИСТИКИ =====
+@app.route("/stats", methods=["POST"])
+def get_stats():
+    data = request.json
+    tg_id = data.get("tgId")
+    
+    if not tg_id:
+        return jsonify({"success": False, "stats": {"orders_count": 0, "total_spent": 0}}), 400
+    
+    headers = supabase_headers()
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&select=total,status",
+        headers=headers
+    )
+    
+    orders = response.json() if response.status_code == 200 else []
+    total_spent = sum(o.get("total", 0) for o in orders if o.get("status") == "completed")
+    
+    return jsonify({
+        "success": True,
+        "stats": {
+            "orders_count": len(orders),
+            "total_spent": total_spent
+        }
+    })
+
+# ===== ЭНДПОИНТ ДЛЯ СОХРАНЕНИЯ КОРЗИНЫ =====
+@app.route("/save-cart", methods=["POST"])
+def save_cart():
+    data = request.json
+    user_tg_id = data.get("userTgId")
+    name = data.get("name")
+    items = data.get("items")
+    
+    if not user_tg_id:
+        return jsonify({"success": False}), 400
+    
+    headers = supabase_headers()
+    payload = {
+        "user_tg_id": user_tg_id,
+        "name": name,
+        "items": items
+    }
+    
+    response = requests.post(
+        f"{SUPABASE_URL}/rest/v1/saved_carts",
+        headers=headers,
+        json=payload
+    )
+    
+    return jsonify({"success": response.status_code in [200, 201]})
+
+# ===== ЭНДПОИНТ ДЛЯ ПОЛУЧЕНИЯ СОХРАНЁННЫХ КОРЗИН =====
+@app.route("/get-carts", methods=["POST"])
+def get_carts():
+    data = request.json
+    user_tg_id = data.get("userTgId")
+    
+    if not user_tg_id:
+        return jsonify({"success": False, "carts": []}), 400
+    
+    headers = supabase_headers()
+    response = requests.get(
+        f"{SUPABASE_URL}/rest/v1/saved_carts?user_tg_id=eq.{user_tg_id}&order=created_at.desc",
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        return jsonify({"success": True, "carts": response.json()})
+    
+    return jsonify({"success": False, "carts": []}), 500
+
+# ===== ЭНДПОИНТ ДЛЯ УДАЛЕНИЯ КОРЗИНЫ =====
+@app.route("/delete-cart", methods=["POST"])
+def delete_cart():
+    data = request.json
+    cart_id = data.get("cartId")
+    
+    if not cart_id:
+        return jsonify({"success": False}), 400
+    
+    headers = supabase_headers()
+    response = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/saved_carts?id=eq.{cart_id}",
+        headers=headers
+    )
+    
+    return jsonify({"success": response.status_code == 200})
+
+# ===== ОСНОВНОЙ ЭНДПОИНТ ДЛЯ ОТПРАВКИ ЗАКАЗА =====
 @app.route("/send-order", methods=["POST"])
 def send_order():
     data = request.json
 
     if not data:
-        return {"status": "error", "message": "No data received"}, 400
+        return jsonify({"status": "error", "message": "No data received"}), 400
 
     # Сохраняем заказ в Supabase
-    save_order_to_supabase(data)
+    headers = supabase_headers()
+    payload = {
+        "order_number": data.get("orderId"),
+        "user_tg_id": int(data.get("tgId")),
+        "items": data.get("items"),
+        "total": data.get("total"),
+        "status": "pending"
+    }
+    
+    requests.post(
+        f"{SUPABASE_URL}/rest/v1/orders",
+        headers=headers,
+        json=payload
+    )
 
     # Формируем сообщение для Telegram
     items_text = ""
@@ -97,17 +244,17 @@ def send_order():
     )
 
     if resp.status_code != 200:
-        return {"status": "error", "message": resp.text}, 500
+        return jsonify({"status": "error", "message": resp.text}), 500
 
-    return {"status": "ok", "success": True}
+    return jsonify({"status": "ok", "success": True})
 
 # ===== WEBHOOK ДЛЯ КНОПОК =====
 @app.route("/webhook", methods=["POST"])
-def webhook():
+def webhook_handler():
     update = request.json
     
     if not update or "callback_query" not in update:
-        return {"status": "ok"}, 200
+        return jsonify({"status": "ok"}), 200
     
     callback = update["callback_query"]
     data = callback["data"]
@@ -123,20 +270,12 @@ def webhook():
     }
     
     if action not in status_map:
-        return {"status": "ok"}, 200
+        return jsonify({"status": "ok"}), 200
     
     new_status, status_text = status_map[action]
     
     # Обновляем статус в Supabase
-    SUPABASE_URL = "https://perxwqxtzgbvswimmkgt.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlcnh3cXh0emdidnN3aW1ta2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNTY1NTYsImV4cCI6MjA5MDYzMjU1Nn0.dmR6UpUOHsYgPgr8k9wWWiqdNhfGq38Qjk5so1l37YY"
-    
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json"
-    }
-    
+    headers = supabase_headers()
     requests.patch(
         f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}",
         headers=headers,
@@ -191,9 +330,9 @@ def webhook():
             }
         )
     
-    return {"status": "ok"}, 200
+    return jsonify({"status": "ok"}), 200
 
-# ===== Запуск сервера =====
+# ===== ЗАПУСК =====
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
