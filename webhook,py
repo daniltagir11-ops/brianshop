@@ -1,0 +1,116 @@
+import requests
+import json
+import os
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+BOT_TOKEN = '8486993696:AAFLyvI3lbMYltXTKXVSbMj552dcXaXwgRI'
+SUPABASE_URL = 'https://perxwqxtzgbvswimmkgt.supabase.co'
+SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlcnh3cXh0emdidnN3aW1ta2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNTY1NTYsImV4cCI6MjA5MDYzMjU1Nn0.dmR6UpUOHsYgPgr8k9wWWiqdNhfGq38Qjk5so1l37YY'
+
+def update_order_status(order_id, new_status):
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json'
+    }
+    url = f'{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}'
+    response = requests.patch(url, headers=headers, json={'status': new_status})
+    return response.status_code == 200
+
+def get_order_by_id(order_id):
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}'
+    }
+    url = f'{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}&select=*'
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        return data[0] if data else None
+    return None
+
+def notify_user(user_tg_id, order_id, status_text):
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
+    payload = {
+        'chat_id': user_tg_id,
+        'text': f'🔄 Статус вашего заказа #{order_id} изменён на "{status_text}"',
+        'parse_mode': 'HTML'
+    }
+    requests.post(url, json=payload)
+
+def update_moderator_message(chat_id, message_id, order_id, status_text):
+    # Получаем текущее сообщение
+    get_url = f'https://api.telegram.org/bot{BOT_TOKEN}/getMessage'
+    get_payload = {'chat_id': chat_id, 'message_id': message_id}
+    response = requests.post(get_url, json=get_payload)
+    
+    if response.status_code == 200:
+        msg_data = response.json()
+        if msg_data.get('ok') and msg_data.get('result'):
+            old_text = msg_data['result']['text']
+            new_text = old_text.replace('🆕 <b>НОВЫЙ ЗАКАЗ', f'🔄 <b>ЗАКАЗ {status_text.upper()}</b>')
+            
+            # Редактируем сообщение
+            edit_url = f'https://api.telegram.org/bot{BOT_TOKEN}/editMessageText'
+            edit_payload = {
+                'chat_id': chat_id,
+                'message_id': message_id,
+                'text': new_text,
+                'parse_mode': 'HTML'
+            }
+            requests.post(edit_url, json=edit_payload)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = request.json
+    
+    if not update or 'callback_query' not in update:
+        return jsonify({'status': 'ok'}), 200
+    
+    callback = update['callback_query']
+    data = callback['data']
+    chat_id = callback['message']['chat']['id']
+    message_id = callback['message']['message_id']
+    
+    action, order_id = data.split('_')
+    
+    status_map = {
+        'view': ('viewed', 'Просмотрено'),
+        'paid': ('paid', 'Оплачен'),
+        'done': ('completed', 'Выполнен')
+    }
+    
+    if action not in status_map:
+        return jsonify({'status': 'ok'}), 200
+    
+    new_status, status_text = status_map[action]
+    
+    # Обновляем статус в Supabase
+    update_order_status(order_id, new_status)
+    
+    # Получаем заказ для user_tg_id
+    order = get_order_by_id(order_id)
+    
+    # Обновляем сообщение модератора
+    update_moderator_message(chat_id, message_id, order_id, status_text)
+    
+    # Отвечаем на callback (убираем "часики")
+    answer_url = f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery'
+    answer_payload = {
+        'callback_query_id': callback['id'],
+        'text': f'Статус изменён на "{status_text}"',
+        'show_alert': False
+    }
+    requests.post(answer_url, json=answer_payload)
+    
+    # Уведомляем пользователя
+    if order and order.get('user_tg_id'):
+        notify_user(order['user_tg_id'], order_id, status_text)
+    
+    return jsonify({'status': 'ok'}), 200
+
+# Для локального тестирования
+if __name__ == '__main__':
+    app.run(port=5000)
