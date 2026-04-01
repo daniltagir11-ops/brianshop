@@ -91,8 +91,19 @@ def get_orders():
             headers=headers
         )
         
+        print(f"Orders response status: {response.status_code}")
+        print(f"Orders data: {response.text}")
+        
         if response.status_code == 200:
-            return jsonify({"success": True, "orders": response.json()})
+            orders = response.json()
+            # Преобразуем items из строки JSON обратно в объект
+            for order in orders:
+                if isinstance(order.get("items"), str):
+                    try:
+                        order["items"] = json.loads(order["items"])
+                    except:
+                        order["items"] = []
+            return jsonify({"success": True, "orders": orders})
         
         return jsonify({"success": False, "orders": []}), 500
         
@@ -227,6 +238,8 @@ def send_order():
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
 
+        print(f"Received order: {data.get('orderId')} for user {data.get('tgId')}")
+
         headers = supabase_headers()
         payload = {
             "order_number": data.get("orderId"),
@@ -242,7 +255,8 @@ def send_order():
             json=payload
         )
         
-        print(f"Supabase save: {supabase_response.status_code}")
+        print(f"Supabase save status: {supabase_response.status_code}")
+        print(f"Supabase response: {supabase_response.text}")
 
         items_text = ""
         for item in data.get("items", []):
@@ -286,7 +300,7 @@ def send_order():
             }
         )
         
-        print(f"Telegram send: {tg_response.status_code}")
+        print(f"Telegram send status: {tg_response.status_code}")
 
         return jsonify({"success": True})
 
@@ -301,8 +315,6 @@ def send_order():
 def webhook_handler():
     try:
         update = request.json
-        
-        print(f"Webhook received: {update}")
         
         if not update or "callback_query" not in update:
             return jsonify({"status": "ok"}), 200
