@@ -36,7 +36,6 @@ def user():
         
         headers = supabase_headers()
         
-        # Проверяем существующего пользователя
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
             headers=headers
@@ -46,7 +45,6 @@ def user():
             user_data = response.json()[0]
             return jsonify({"success": True, "user": user_data})
         
-        # Создаём нового
         referral_code = str(tg_id)[:8] + "X"
         payload = {
             "tg_id": tg_id,
@@ -64,7 +62,6 @@ def user():
         )
         
         if create_response.status_code in [200, 201]:
-            # Получаем созданного пользователя
             get_response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
                 headers=headers
@@ -183,7 +180,6 @@ def get_carts():
         
         if response.status_code == 200:
             carts = response.json()
-            # Преобразуем items из строки JSON обратно в объект
             for cart in carts:
                 if isinstance(cart.get("items"), str):
                     try:
@@ -231,7 +227,6 @@ def send_order():
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
 
-        # Сохраняем заказ в Supabase
         headers = supabase_headers()
         payload = {
             "order_number": data.get("orderId"),
@@ -249,7 +244,6 @@ def send_order():
         
         print(f"Supabase save: {supabase_response.status_code}")
 
-        # Формируем сообщение для Telegram
         items_text = ""
         for item in data.get("items", []):
             if item["type"] == "physical":
@@ -274,7 +268,6 @@ def send_order():
 💰 <b>ИТОГО: {data.get('total', 0)}₽</b>
 """.strip()
 
-        # Inline-кнопки
         inline_keyboard = {
             "inline_keyboard": [[
                 {"text": "👀 Просмотрено", "callback_data": f"view_{data.get('orderId', '')}"},
@@ -283,7 +276,6 @@ def send_order():
             ]]
         }
 
-        # Отправляем в Telegram
         tg_response = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/sendMessage",
             json={
@@ -310,6 +302,8 @@ def webhook_handler():
     try:
         update = request.json
         
+        print(f"Webhook received: {update}")
+        
         if not update or "callback_query" not in update:
             return jsonify({"status": "ok"}), 200
         
@@ -331,7 +325,6 @@ def webhook_handler():
         
         new_status, status_text = status_map[action]
         
-        # Обновляем статус в Supabase
         headers = supabase_headers()
         requests.patch(
             f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}",
@@ -339,14 +332,12 @@ def webhook_handler():
             json={"status": new_status}
         )
         
-        # Получаем заказ для user_tg_id
         order_response = requests.get(
             f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}&select=*",
             headers=headers
         )
         order = order_response.json()[0] if order_response.status_code == 200 and order_response.json() else None
         
-        # Обновляем сообщение модератора
         get_msg = requests.post(
             f"https://api.telegram.org/bot{TOKEN}/getMessage",
             json={"chat_id": chat_id, "message_id": message_id}
@@ -366,7 +357,6 @@ def webhook_handler():
                 }
             )
         
-        # Отвечаем на callback
         requests.post(
             f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
             json={
@@ -376,7 +366,6 @@ def webhook_handler():
             }
         )
         
-        # Уведомляем пользователя
         if order and order.get("user_tg_id"):
             requests.post(
                 f"https://api.telegram.org/bot{TOKEN}/sendMessage",
@@ -394,7 +383,19 @@ def webhook_handler():
         return jsonify({"status": "ok"}), 200
 
 
+# ========== УСТАНОВКА WEBHOOK ПРИ ЗАПУСКЕ ==========
+def set_webhook():
+    try:
+        url = "https://api.telegram.org/bot8486993696:AAFLyvI3lbMYltXTKXVSbMj552dcXaXwgRI/setWebhook"
+        webhook_url = "https://brianshop-production.up.railway.app/webhook"
+        allowed_updates = ["message", "callback_query"]
+        response = requests.post(url, json={"url": webhook_url, "allowed_updates": allowed_updates})
+        print("Webhook set:", response.json())
+    except Exception as e:
+        print(f"Error setting webhook: {e}")
+
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
+    set_webhook()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
