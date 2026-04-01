@@ -1,3 +1,4 @@
+from webhook import webhook
 from flask import Flask, request
 from flask_cors import CORS
 import requests
@@ -62,7 +63,7 @@ def send_order():
         return {"status": "error", "message": resp.text}, 500
 
     return {"status": "ok"}
-
+app.add_url_rule('/webhook', view_func=webhook, methods=['POST'])
 # ===== Запуск сервера =====
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
