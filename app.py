@@ -32,7 +32,7 @@ def send_order():
             items_text += f"┣ 🏷️ {item['name']}\n┣ ⏱ Срок: {item['days']} дн.\n┣ 💰 Цена: {item['price']}₽/день\n┣ 💵 Сумма: {item['total']}₽\n\n"
 
     message = f"""
-🚨 НОВЫЙ ЗАКАЗ #{data.get('orderId', 'N/A')}
+🆕 <b>НОВЫЙ ЗАКАЗ #{data.get('orderId', 'N/A')}</b>
 ━━━━━━━━━━━━━━━━━━━
 👤 <b>Информация о клиенте:</b>
 ┣ Telegram ID: <code>{data.get('tgId', '')}</code>
@@ -42,20 +42,25 @@ def send_order():
 📦 <b>Состав заказа:</b>
 {items_text}
 💰 <b>ИТОГО: {data.get('total', 0)}₽</b>
-━━━━━━━━━━━━━━━━━━━
-💬 <b>Действия:</b>
-✅ Связаться с клиентом
-✅ Подтвердить наличие
-✅ Отправить реквизиты
 """.strip()
 
-    # Отправляем сообщение через Telegram API
+    # Inline-кнопки
+    inline_keyboard = {
+        "inline_keyboard": [[
+            {"text": "👀 Просмотрено", "callback_data": f"view_{data.get('orderId', '')}"},
+            {"text": "✅ Оплачен", "callback_data": f"paid_{data.get('orderId', '')}"},
+            {"text": "📦 Выполнен", "callback_data": f"done_{data.get('orderId', '')}"}
+        ]]
+    }
+
+    # Отправляем сообщение через Telegram API с кнопками
     resp = requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         json={
             "chat_id": CHAT_ID,
             "text": message,
-            "parse_mode": "HTML"
+            "parse_mode": "HTML",
+            "reply_markup": inline_keyboard
         }
     )
 
@@ -63,7 +68,10 @@ def send_order():
         return {"status": "error", "message": resp.text}, 500
 
     return {"status": "ok"}
+
+# ===== ДОБАВЛЯЕМ МАРШРУТ ДЛЯ WEBHOOK =====
 app.add_url_rule('/webhook', view_func=webhook, methods=['POST'])
+
 # ===== Запуск сервера =====
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
