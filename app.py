@@ -14,6 +14,8 @@ CHAT_ID = -1003816309605
 SUPABASE_URL = "https://perxwqxtzgbvswimmkgt.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlcnh3cXh0emdidnN3aW1ta2d0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNTY1NTYsImV4cCI6MjA5MDYzMjU1Nn0.dmR6UpUOHsYgPgr8k9wWWiqdNhfGq38Qjk5so1l37YY"
 
+WEATHER_API_KEY = "91bb2bcdcb4b3131f875c00a5a92e4fd"
+
 def supabase_headers():
     return {
         "apikey": SUPABASE_KEY,
@@ -24,7 +26,7 @@ def supabase_headers():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Регистрация
+# ========== ПОЛЬЗОВАТЕЛИ ==========
 @app.route("/register", methods=["POST"])
 def register():
     try:
@@ -43,6 +45,7 @@ def register():
         if response.status_code == 200 and response.json():
             return jsonify({"success": False, "error": "User already exists"}), 400
         
+        hashed_password = hash_password(password)
         payload = {
             "tg_id": tg_id,
             "username": username,
@@ -50,7 +53,7 @@ def register():
             "referral_code": str(tg_id)[:8] + "X",
             "balance": 0,
             "is_admin": False,
-            "password": hash_password(password)
+            "password": hashed_password
         }
         
         create_response = requests.post(f"{SUPABASE_URL}/rest/v1/users", headers=headers, json=payload)
@@ -62,7 +65,6 @@ def register():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Логин
 @app.route("/login", methods=["POST"])
 def login():
     try:
@@ -89,7 +91,6 @@ def login():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Проверка пользователя
 @app.route("/check-user", methods=["POST"])
 def check_user():
     try:
@@ -109,7 +110,6 @@ def check_user():
     except Exception as e:
         return jsonify({"exists": False}), 500
 
-# Получение пользователя
 @app.route("/user", methods=["POST"])
 def user():
     try:
@@ -129,7 +129,7 @@ def user():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Заказы пользователя
+# ========== ЗАКАЗЫ ==========
 @app.route("/orders", methods=["POST"])
 def get_orders():
     try:
@@ -156,7 +156,6 @@ def get_orders():
     except Exception as e:
         return jsonify({"success": False, "orders": []}), 500
 
-# Статистика
 @app.route("/stats", methods=["POST"])
 def get_stats():
     try:
@@ -176,7 +175,7 @@ def get_stats():
     except Exception as e:
         return jsonify({"success": False, "stats": {"orders_count": 0, "total_spent": 0}}), 500
 
-# Сохранение корзины
+# ========== КОРЗИНЫ ==========
 @app.route("/save-cart", methods=["POST"])
 def save_cart():
     try:
@@ -196,7 +195,6 @@ def save_cart():
     except Exception as e:
         return jsonify({"success": False}), 500
 
-# Получение сохранённых корзин
 @app.route("/get-carts", methods=["POST"])
 def get_carts():
     try:
@@ -223,7 +221,6 @@ def get_carts():
     except Exception as e:
         return jsonify({"success": False, "carts": []}), 500
 
-# Удаление корзины
 @app.route("/delete-cart", methods=["POST"])
 def delete_cart():
     try:
@@ -240,7 +237,7 @@ def delete_cart():
     except Exception as e:
         return jsonify({"success": False}), 500
 
-# Отправка заказа
+# ========== ОТПРАВКА ЗАКАЗА ==========
 @app.route("/send-order", methods=["POST"])
 def send_order():
     try:
@@ -303,7 +300,7 @@ def send_order():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Webhook для кнопок
+# ========== WEBHOOK ДЛЯ КНОПОК ==========
 @app.route("/webhook", methods=["POST"])
 def webhook_handler():
     try:
@@ -353,9 +350,7 @@ def webhook_handler():
     except Exception as e:
         return jsonify({"status": "ok"}), 200
 
-# Погода
-WEATHER_API_KEY = "91bb2bcdcb4b3131f875c00a5a92e4fd"  # Замени на реальный ключ
-
+# ========== ПОГОДА ==========
 @app.route("/weather", methods=["POST"])
 def get_weather():
     try:
