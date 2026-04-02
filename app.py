@@ -4,12 +4,10 @@ import requests
 import os
 import json
 import hashlib
-import hmac
 
 app = Flask(__name__)
 CORS(app)
 
-# ===== Настройки =====
 TOKEN = "8486993696:AAFLyvI3lbMYltXTKXVSbMj552dcXaXwgRI"
 CHAT_ID = -1003816309605
 
@@ -26,7 +24,7 @@ def supabase_headers():
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# ========== РЕГИСТРАЦИЯ С ПАРОЛЕМ ==========
+# Регистрация
 @app.route("/register", methods=["POST"])
 def register():
     try:
@@ -40,44 +38,31 @@ def register():
             return jsonify({"success": False, "error": "Missing tgId or password"}), 400
         
         headers = supabase_headers()
-        
-        # Проверяем, существует ли пользователь
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*", headers=headers)
         
         if response.status_code == 200 and response.json():
             return jsonify({"success": False, "error": "User already exists"}), 400
         
-        # Создаём пользователя с паролем
-        referral_code = str(tg_id)[:8] + "X"
         payload = {
             "tg_id": tg_id,
             "username": username,
             "first_name": first_name,
-            "referral_code": referral_code,
+            "referral_code": str(tg_id)[:8] + "X",
             "balance": 0,
             "is_admin": False,
             "password": hash_password(password)
         }
         
-        create_response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/users",
-            headers=headers,
-            json=payload
-        )
+        create_response = requests.post(f"{SUPABASE_URL}/rest/v1/users", headers=headers, json=payload)
         
         if create_response.status_code in [200, 201]:
             return jsonify({"success": True})
         
         return jsonify({"success": False, "error": "Failed to create user"}), 500
-        
     except Exception as e:
-        print(f"Error in /register: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-# ========== ЛОГИН С ПАРОЛЕМ ==========
+# Логин
 @app.route("/login", methods=["POST"])
 def login():
     try:
@@ -89,10 +74,7 @@ def login():
             return jsonify({"success": False, "error": "Missing tgId or password"}), 400
         
         headers = supabase_headers()
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*", headers=headers)
         
         if response.status_code != 200 or not response.json():
             return jsonify({"success": False, "error": "User not found"}), 404
@@ -104,12 +86,10 @@ def login():
             return jsonify({"success": True, "user": user})
         
         return jsonify({"success": False, "error": "Invalid password"}), 401
-        
     except Exception as e:
-        print(f"Error in /login: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-# ========== ПРОВЕРКА СУЩЕСТВОВАНИЯ ПОЛЬЗОВАТЕЛЯ ==========
+# Проверка пользователя
 @app.route("/check-user", methods=["POST"])
 def check_user():
     try:
@@ -120,121 +100,36 @@ def check_user():
             return jsonify({"exists": False}), 400
         
         headers = supabase_headers()
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*", headers=headers)
         
         if response.status_code == 200 and response.json():
-            user = response.json()[0]
-            return jsonify({"exists": True, "hasPassword": bool(user.get("password"))})
+            return jsonify({"exists": True})
         
         return jsonify({"exists": False})
-        
     except Exception as e:
-        print(f"Error in /check-user: {e}")
         return jsonify({"exists": False}), 500
 
-# ========== ПОЛУЧЕНИЕ ПОГОДЫ ==========
-WEATHER_API_KEY = "YOUR_OPENWEATHER_API_KEY"  # Замени на свой ключ
-
-@app.route("/weather", methods=["POST"])
-def get_weather():
-    try:
-        data = request.json
-        lat = data.get("lat")
-        lon = data.get("lon")
-        
-        if not lat or not lon:
-            return jsonify({"success": False, "error": "No coordinates"}), 400
-        
-        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric&lang=ru"
-        response = requests.get(url)
-        
-        if response.status_code == 200:
-            weather_data = response.json()
-            weather_main = weather_data.get("weather", [{}])[0].get("main", "").lower()
-            temp = weather_data.get("main", {}).get("temp", 0)
-            
-            # Определяем тип погоды
-            if weather_main in ["clear"]:
-                weather_type = "sunny"
-            elif weather_main in ["rain", "drizzle", "thunderstorm"]:
-                weather_type = "rainy"
-            elif weather_main in ["snow"]:
-                weather_type = "snowy"
-            else:
-                weather_type = "cloudy"
-            
-            return jsonify({
-                "success": True,
-                "weather": weather_type,
-                "temp": temp,
-                "description": weather_data.get("weather", [{}])[0].get("description", "")
-            })
-        
-        return jsonify({"success": False, "error": "Weather API error"}), 500
-        
-    except Exception as e:
-        print(f"Error in /weather: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# ========== ОСТАЛЬНЫЕ ЭНДПОИНТЫ (заказы, корзины и т.д.) ==========
-# ========== ЭНДПОИНТЫ ДЛЯ ПРОФИЛЯ ==========
-
+# Получение пользователя
 @app.route("/user", methods=["POST"])
 def user():
     try:
         data = request.json
         tg_id = data.get("tgId")
-        username = data.get("username", "")
-        first_name = data.get("firstName", "")
         
         if not tg_id:
             return jsonify({"success": False, "error": "No tgId"}), 400
         
         headers = supabase_headers()
-        
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*", headers=headers)
         
         if response.status_code == 200 and response.json():
-            user_data = response.json()[0]
-            return jsonify({"success": True, "user": user_data})
+            return jsonify({"success": True, "user": response.json()[0]})
         
-        referral_code = str(tg_id)[:8] + "X"
-        payload = {
-            "tg_id": tg_id,
-            "username": username,
-            "first_name": first_name,
-            "referral_code": referral_code,
-            "balance": 0,
-            "is_admin": False
-        }
-        
-        create_response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/users",
-            headers=headers,
-            json=payload
-        )
-        
-        if create_response.status_code in [200, 201]:
-            get_response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/users?tg_id=eq.{tg_id}&select=*",
-                headers=headers
-            )
-            if get_response.status_code == 200 and get_response.json():
-                return jsonify({"success": True, "user": get_response.json()[0]})
-        
-        return jsonify({"success": False, "error": "Failed to create user"}), 500
-        
+        return jsonify({"success": False, "error": "User not found"}), 404
     except Exception as e:
-        print(f"Error in /user: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-
+# Заказы пользователя
 @app.route("/orders", methods=["POST"])
 def get_orders():
     try:
@@ -245,17 +140,10 @@ def get_orders():
             return jsonify({"success": False, "orders": []}), 400
         
         headers = supabase_headers()
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&order=created_at.desc",
-            headers=headers
-        )
-        
-        print(f"Orders response status: {response.status_code}")
-        print(f"Orders data: {response.text}")
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&order=created_at.desc", headers=headers)
         
         if response.status_code == 200:
             orders = response.json()
-            # Преобразуем items из строки JSON обратно в объект
             for order in orders:
                 if isinstance(order.get("items"), str):
                     try:
@@ -265,12 +153,10 @@ def get_orders():
             return jsonify({"success": True, "orders": orders})
         
         return jsonify({"success": False, "orders": []}), 500
-        
     except Exception as e:
-        print(f"Error in /orders: {e}")
         return jsonify({"success": False, "orders": []}), 500
 
-
+# Статистика
 @app.route("/stats", methods=["POST"])
 def get_stats():
     try:
@@ -281,27 +167,16 @@ def get_stats():
             return jsonify({"success": False, "stats": {"orders_count": 0, "total_spent": 0}}), 400
         
         headers = supabase_headers()
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&select=total,status",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/orders?user_tg_id=eq.{tg_id}&select=total,status", headers=headers)
         
         orders = response.json() if response.status_code == 200 else []
         total_spent = sum(o.get("total", 0) for o in orders if o.get("status") == "completed")
         
-        return jsonify({
-            "success": True,
-            "stats": {
-                "orders_count": len(orders),
-                "total_spent": total_spent
-            }
-        })
-        
+        return jsonify({"success": True, "stats": {"orders_count": len(orders), "total_spent": total_spent}})
     except Exception as e:
-        print(f"Error in /stats: {e}")
         return jsonify({"success": False, "stats": {"orders_count": 0, "total_spent": 0}}), 500
 
-
+# Сохранение корзины
 @app.route("/save-cart", methods=["POST"])
 def save_cart():
     try:
@@ -314,25 +189,14 @@ def save_cart():
             return jsonify({"success": False}), 400
         
         headers = supabase_headers()
-        payload = {
-            "user_tg_id": user_tg_id,
-            "name": name,
-            "items": json.dumps(items)
-        }
-        
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/saved_carts",
-            headers=headers,
-            json=payload
-        )
+        payload = {"user_tg_id": user_tg_id, "name": name, "items": json.dumps(items)}
+        response = requests.post(f"{SUPABASE_URL}/rest/v1/saved_carts", headers=headers, json=payload)
         
         return jsonify({"success": response.status_code in [200, 201]})
-        
     except Exception as e:
-        print(f"Error in /save-cart: {e}")
         return jsonify({"success": False}), 500
 
-
+# Получение сохранённых корзин
 @app.route("/get-carts", methods=["POST"])
 def get_carts():
     try:
@@ -343,10 +207,7 @@ def get_carts():
             return jsonify({"success": False, "carts": []}), 400
         
         headers = supabase_headers()
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/saved_carts?user_tg_id=eq.{user_tg_id}&order=created_at.desc",
-            headers=headers
-        )
+        response = requests.get(f"{SUPABASE_URL}/rest/v1/saved_carts?user_tg_id=eq.{user_tg_id}&order=created_at.desc", headers=headers)
         
         if response.status_code == 200:
             carts = response.json()
@@ -359,12 +220,10 @@ def get_carts():
             return jsonify({"success": True, "carts": carts})
         
         return jsonify({"success": False, "carts": []}), 500
-        
     except Exception as e:
-        print(f"Error in /get-carts: {e}")
         return jsonify({"success": False, "carts": []}), 500
 
-
+# Удаление корзины
 @app.route("/delete-cart", methods=["POST"])
 def delete_cart():
     try:
@@ -375,30 +234,21 @@ def delete_cart():
             return jsonify({"success": False}), 400
         
         headers = supabase_headers()
-        response = requests.delete(
-            f"{SUPABASE_URL}/rest/v1/saved_carts?id=eq.{cart_id}",
-            headers=headers
-        )
+        response = requests.delete(f"{SUPABASE_URL}/rest/v1/saved_carts?id=eq.{cart_id}", headers=headers)
         
         return jsonify({"success": response.status_code == 200})
-        
     except Exception as e:
-        print(f"Error in /delete-cart: {e}")
         return jsonify({"success": False}), 500
 
-
-# ========== ОСНОВНОЙ ЭНДПОИНТ ДЛЯ ЗАКАЗОВ ==========
-
+# Отправка заказа
 @app.route("/send-order", methods=["POST"])
 def send_order():
     try:
         data = request.json
-
+        
         if not data:
             return jsonify({"success": False, "error": "No data received"}), 400
-
-        print(f"Received order: {data.get('orderId')} for user {data.get('tgId')}")
-
+        
         headers = supabase_headers()
         payload = {
             "order_number": data.get("orderId"),
@@ -408,15 +258,8 @@ def send_order():
             "status": "pending"
         }
         
-        supabase_response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/orders",
-            headers=headers,
-            json=payload
-        )
+        requests.post(f"{SUPABASE_URL}/rest/v1/orders", headers=headers, json=payload)
         
-        print(f"Supabase save status: {supabase_response.status_code}")
-        print(f"Supabase response: {supabase_response.text}")
-
         items_text = ""
         for item in data.get("items", []):
             if item["type"] == "physical":
@@ -427,7 +270,7 @@ def send_order():
                 items_text += f"┣ 💎 {item['name']}\n┣ 📦 Кол-во: {item['qty']} TON\n┣ 💰 Цена: 110₽/TON\n┣ 💵 Сумма: {item['total']}₽\n\n"
             else:
                 items_text += f"┣ 🏷️ {item['name']}\n┣ ⏱ Срок: {item['days']} дн.\n┣ 💰 Цена: {item['price']}₽/день\n┣ 💵 Сумма: {item['total']}₽\n\n"
-
+        
         message = f"""
 🆕 <b>НОВЫЙ ЗАКАЗ #{data.get('orderId', 'N/A')}</b>
 ━━━━━━━━━━━━━━━━━━━
@@ -439,8 +282,8 @@ def send_order():
 📦 <b>Состав заказа:</b>
 {items_text}
 💰 <b>ИТОГО: {data.get('total', 0)}₽</b>
-""".strip()
-
+"""
+        
         inline_keyboard = {
             "inline_keyboard": [[
                 {"text": "👀 Просмотрено", "callback_data": f"view_{data.get('orderId', '')}"},
@@ -448,28 +291,19 @@ def send_order():
                 {"text": "📦 Выполнен", "callback_data": f"done_{data.get('orderId', '')}"}
             ]]
         }
-
-        tg_response = requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": message,
-                "parse_mode": "HTML",
-                "reply_markup": inline_keyboard
-            }
-        )
         
-        print(f"Telegram send status: {tg_response.status_code}")
-
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "reply_markup": inline_keyboard
+        })
+        
         return jsonify({"success": True})
-
     except Exception as e:
-        print(f"Error in /send-order: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-
-# ========== WEBHOOK ДЛЯ КНОПОК ==========
-
+# Webhook для кнопок
 @app.route("/webhook", methods=["POST"])
 def webhook_handler():
     try:
@@ -497,80 +331,63 @@ def webhook_handler():
         new_status, status_text = status_map[action]
         
         headers = supabase_headers()
-        requests.patch(
-            f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}",
-            headers=headers,
-            json={"status": new_status}
-        )
+        requests.patch(f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}", headers=headers, json={"status": new_status})
         
-        order_response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}&select=*",
-            headers=headers
-        )
+        order_response = requests.get(f"{SUPABASE_URL}/rest/v1/orders?order_number=eq.{order_id}&select=*", headers=headers)
         order = order_response.json()[0] if order_response.status_code == 200 and order_response.json() else None
         
-        get_msg = requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/getMessage",
-            json={"chat_id": chat_id, "message_id": message_id}
-        )
-        
-        if get_msg.status_code == 200 and get_msg.json().get("ok"):
-            old_text = get_msg.json()["result"]["text"]
-            new_text = old_text.replace("🆕 <b>НОВЫЙ ЗАКАЗ", f"🔄 <b>ЗАКАЗ {status_text.upper()}</b>")
-            
-            requests.post(
-                f"https://api.telegram.org/bot{TOKEN}/editMessageText",
-                json={
-                    "chat_id": chat_id,
-                    "message_id": message_id,
-                    "text": new_text,
-                    "parse_mode": "HTML"
-                }
-            )
-        
-        requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
-            json={
-                "callback_query_id": callback["id"],
-                "text": f"Статус изменён на \"{status_text}\"",
-                "show_alert": False
-            }
-        )
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery", json={
+            "callback_query_id": callback["id"],
+            "text": f"Статус изменён на \"{status_text}\"",
+            "show_alert": False
+        })
         
         if order and order.get("user_tg_id"):
-            requests.post(
-                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                json={
-                    "chat_id": order["user_tg_id"],
-                    "text": f"🔄 Статус вашего заказа #{order_id} изменён на \"{status_text}\"",
-                    "parse_mode": "HTML"
-                }
-            )
+            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json={
+                "chat_id": order["user_tg_id"],
+                "text": f"🔄 Статус вашего заказа #{order_id} изменён на \"{status_text}\"",
+                "parse_mode": "HTML"
+            })
         
         return jsonify({"status": "ok"}), 200
-        
     except Exception as e:
-        print(f"Error in webhook: {e}")
         return jsonify({"status": "ok"}), 200
 
+# Погода
+WEATHER_API_KEY = "91bb2bcdcb4b3131f875c00a5a92e4fd"  # Замени на реальный ключ
 
-# ========== УСТАНОВКА WEBHOOK ПРИ ЗАПУСКЕ ==========
-def set_webhook():
+@app.route("/weather", methods=["POST"])
+def get_weather():
     try:
-        url = "https://api.telegram.org/bot8486993696:AAFLyvI3lbMYltXTKXVSbMj552dcXaXwgRI/setWebhook"
-        webhook_url = "https://brianshop-production.up.railway.app/webhook"
-        allowed_updates = ["message", "callback_query"]
-        response = requests.post(url, json={"url": webhook_url, "allowed_updates": allowed_updates})
-        print("Webhook set:", response.json())
+        data = request.json
+        lat = data.get("lat")
+        lon = data.get("lon")
+        
+        if not lat or not lon:
+            return jsonify({"success": False, "error": "No coordinates"}), 400
+        
+        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric&lang=ru"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            weather_data = response.json()
+            weather_main = weather_data.get("weather", [{}])[0].get("main", "").lower()
+            
+            if weather_main in ["clear"]:
+                weather_type = "sunny"
+            elif weather_main in ["rain", "drizzle", "thunderstorm"]:
+                weather_type = "rainy"
+            elif weather_main in ["snow"]:
+                weather_type = "snowy"
+            else:
+                weather_type = "cloudy"
+            
+            return jsonify({"success": True, "weather": weather_type})
+        
+        return jsonify({"success": False, "error": "Weather API error"}), 500
     except Exception as e:
-        print(f"Error setting webhook: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
-# ========== ЗАПУСК ==========
-if __name__ == "__main__":
-    set_webhook()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-# ========== ЗАПУСК ==========
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
